@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Play and be smarter">
+    <meta name="theme-color" content="#6366F1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="My Quiz">
+    
+    <title>Language Learning Game - Изучай языки</title>
+    
+    <link rel="manifest" href="/quiz1/manifest.json">
+    
+    <link rel="icon" type="image/png" sizes="192x192" href="/quiz1/icon-192.png">
+    <link rel="apple-touch-icon" href="/quiz1/icon-192.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script>
+        // Регистрация Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/quiz1/sw.js')
+                    .then(reg => console.log('Service Worker зарегистрирован'))
+                    .catch(err => console.log('Ошибка Service Worker:', err));
+            });
+        }
+
+        // --- 1. НОВЫЕ ГЛОБАЛЬНЫЕ НАСТРОЙКИ СЛОВАРЕЙ ---
+        const DICTIONARY_CONFIG = {
+            'portuguese': { 
+                name: 'food', 
+                // !!! ЗАМЕНИТЕ ЭТОТ URL НА РЕАЛЬНУЮ RAW ССЫЛКУ GITHUB !!!
+                url: 'https://raw.githubusercontent.com/vser2000-design/quiz1/refs/heads/main/food_x.json' 
+            },
+            'english': { 
+                name: 'travel', 
+                // !!! ЗАМЕНИТЕ ЭТОТ URL НА РЕАЛЬНУЮ RAW ССЫЛКУ GITHUB !!!
+                url: 'https://raw.githubusercontent.com/vser2000-design/quiz1/refs/heads/main/travel_x.json' 
+            },
+            'spanish': { 
+                name: 'phrasal', 
+                // !!! ЗАМЕНИТЕ ЭТОТ URL НА РЕАЛЬНУЮ RAW ССЫЛКУ GITHUB !!!
+                url: 'https://raw.githubusercontent.com/vser2000-design/quiz1/refs/heads/main/phrasal-verbs_x.json' 
+            }
+        };
+
+        let currentVocabulary = [];
+        let selectedDictionaryKey = Object.keys(DICTIONARY_CONFIG)[0];
+        
+        // Асинхронная функция загрузки словаря
+        async function loadDictionary(key) {
+            const url = DICTIONARY_CONFIG[key].url;
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Ошибка загрузки: ${response.status} ${response.statusText}`);
+                }
+                currentVocabulary = await response.json();
+                return true;
+            } catch (error) {
+                console.error("Не удалось загрузить словарь:", error);
+                alert(`Ошибка загрузки словаря "${DICTIONARY_CONFIG[key].name}". Проверьте URL.`);
+                return false;
+            }
+        }
+        // --- КОНЕЦ НОВЫХ ГЛОБАЛЬНЫХ НАСТРОЕК ---
+        
+        // Весь код приложения
+        let gameState = 'menu';
+        let currentQuestion = null;
+        let options = [];
+        let selectedAnswer = null;
+        let correctAnswer = null;
+        let score = { correct: 0, total: 0 };
+        let usedIndices = [];
+
+        function updateSelectedDictionary(key) {
+            selectedDictionaryKey = key;
+        }
+
+        async function initGame() {
+            const playButton = document.querySelector('button[onclick="initGame()"]');
+            if (playButton) {
+                playButton.textContent = 'Загрузка...';
+                playButton.disabled = true;
+                playButton.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+            
+            const success = await loadDictionary(selectedDictionaryKey);
+            
+            if (success && currentVocabulary.length > 0) {
+                startGame();
+            } else {
+                if (playButton) {
+                    playButton.textContent = '▶ Play';
+                    playButton.disabled = false;
+                    playButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+                if (currentVocabulary.length === 0) {
+                    alert('Загруженный словарь пуст. Проверьте содержимое JSON-файла.');
+                }
+            }
+        }
+
+
+        function render() {
+            const app = document.getElementById('app');
+            
+            if (gameState === 'menu') {
+                // Измененный код для отображения селектора словарей
+                const optionsHTML = Object.entries(DICTIONARY_CONFIG).map(([key, dict]) => `
+                    <option value="${key}" ${key === selectedDictionaryKey ? 'selected' : ''}>${dict.name}</option>
+                `).join('');
+
+                app.innerHTML = `
+                    <div class="min-h-screen bg-gradient-to-br from-green-400 via-blue-500 to-purple-600 flex items-center justify-center p-4">
+                        <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full">
+                            <div class="text-center mb-8">
+                                <h1 class="text-5xl font-bold text-gray-800 mb-3">Language Learner</h1>
+                                <p class="text-xl text-gray-600">Выберите словарь и начните игру!</p>
+                            </div>
+                            
+                            <div class="mb-6">
+                                <label for="dictionary-selector" class="block text-gray-700 font-semibold mb-2">Выберите словарь:</label>
+                                <select id="dictionary-selector" onchange="updateSelectedDictionary(this.value)"
+                                    class="w-full p-3 border-2 border-gray-300 rounded-xl bg-white text-lg focus:border-blue-500 focus:ring-blue-500 transition-all">
+                                    ${optionsHTML}
+                                </select>
+                            </div>
+                            <button onclick="initGame()" class="w-full bg-gradient-to-r from-green-500 to-blue-600 text-white py-5 px-6 rounded-2xl font-bold text-2xl hover:from-green-600 hover:to-blue-700 transition-all transform hover:scale-105 shadow-lg">
+                                ▶ Play
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+            } else if (gameState === 'playing') {
+                const totalWords = currentVocabulary.length; // Используем текущий словарь
+                const percentage = score.total === 0 ? 0 : Math.round((score.correct / score.total) * 100);
+                const showNext = selectedAnswer !== null;
+                
+                let optionsHTML = options.map((option, index) => {
+                    const isSelected = selectedAnswer === option;
+                    const isCorrect = option === correctAnswer;
+                    const showResult = selectedAnswer !== null;
+                    
+                    let buttonClass = 'w-full p-5 rounded-xl font-semibold text-lg transition-all border-2 ';
+                    if (showResult) {
+                        if (isCorrect) {
+                            buttonClass += 'bg-green-500 text-white border-green-600';
+                        } else if (isSelected && !isCorrect) {
+                            buttonClass += 'bg-red-500 text-white border-red-600';
+                        } else {
+                            buttonClass += 'bg-gray-200 text-gray-500 border-gray-300';
+                        }
+                    } else {
+                        buttonClass += 'bg-white text-gray-800 border-gray-300 hover:border-blue-500 hover:bg-blue-50';
+                    }
+                    
+                    return `<button onclick="selectAnswer('${option.replace(/'/g, "\\'")}')" ${showResult ? 'disabled' : ''} class="${buttonClass}">${option}</button>`;
+                }).join('');
+                
+                app.innerHTML = `
+                    <div class="min-h-screen bg-gradient-to-br from-green-400 via-blue-500 to-purple-600 p-4">
+                        <div class="max-w-3xl mx-auto">
+                            <div class="bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 mb-6">
+                                <div class="flex items-center justify-between flex-wrap gap-3">
+                                    <div class="flex items-center gap-4">
+                                        <div class="text-2xl font-bold text-gray-800">${score.correct}/${score.total}</div>
+                                        <div class="text-xl font-semibold text-blue-600">${percentage}%</div>
+                                        <div class="text-sm text-gray-500">Вопрос ${usedIndices.length} из ${totalWords}</div>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        ${showNext && usedIndices.length < totalWords ? '<button onclick="nextQuestion()" class="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-purple-700 transition-all shadow-md">Next →</button>' : ''}
+                                        <button onclick="finishGame()" class="px-5 py-2.5 bg-yellow-500 text-white rounded-xl font-semibold hover:bg-yellow-600 transition-all shadow-md">Finish</button>
+                                        <button onclick="exitGame()" class="px-5 py-2.5 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-all shadow-md">✕ Exit</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-3xl shadow-2xl p-8">
+                                <div class="mb-8 p-8 bg-gradient-to-r from-purple-100 to-blue-100 rounded-2xl">
+                                    <h2 class="text-4xl font-bold text-gray-800 text-center break-words">${currentQuestion}</h2>
+                                </div>
+                                <div class="grid grid-cols-1 gap-4 mb-6">
+                                    ${optionsHTML}
+                                </div>
+                                ${selectedAnswer ? `
+                                    <div class="text-center">
+                                        <div class="p-6 ${selectedAnswer === correctAnswer ? 'bg-green-100 border-green-500' : 'bg-red-100 border-red-500'} rounded-2xl border-2">
+                                            <p class="text-4xl font-bold ${selectedAnswer === correctAnswer ? 'text-green-700' : 'text-red-700'}">
+                                                ${selectedAnswer === correctAnswer ? 'Yes! ✓' : 'No! ✗'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (gameState === 'finished') {
+                // Код для 'finished' остается без изменений, кроме использования currentVocabulary.length
+                const percentage = score.total === 0 ? 0 : Math.round((score.correct / score.total) * 100);
+                let motivation = '';
+                if (percentage >= 80) motivation = '<p class="text-3xl text-green-600 font-bold mb-8">Отлично! 🎉</p>';
+                else if (percentage >= 50) motivation = '<p class="text-3xl text-blue-600 font-bold mb-8">Хорошо! 👍</p>';
+                else motivation = '<p class="text-3xl text-orange-600 font-bold mb-8">Продолжай практиковаться! 💪</p>';
+                
+                app.innerHTML = `
+                    <div class="min-h-screen bg-gradient-to-br from-green-400 via-blue-500 to-purple-600 flex items-center justify-center p-4">
+                        <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-lg w-full">
+                            <div class="text-center mb-8">
+                                <h1 class="text-5xl font-bold text-gray-800 mb-6">🎉 Игра окончена!</h1>
+                                <div class="mb-8 p-8 bg-gradient-to-r from-purple-100 to-blue-100 rounded-2xl">
+                                    <p class="text-7xl font-bold text-gray-800 mb-3">${percentage}%</p>
+                                    <p class="text-3xl text-gray-700 font-semibold">${score.correct} из ${score.total}</p>
+                                </div>
+                                ${motivation}
+                            </div>
+                            <div class="flex gap-4">
+                                <button onclick="exitGame(true)" class="flex-1 bg-gradient-to-r from-green-500 to-blue-600 text-white py-5 px-6 rounded-xl font-bold text-lg hover:from-green-600 hover:to-blue-700 transition-all shadow-lg">
+                                    Играть снова
+                                </button>
+                                <button onclick="exitGame()" class="flex-1 bg-gray-500 text-white py-5 px-6 rounded-xl font-bold text-lg hover:bg-gray-600 transition-all shadow-lg">
+                                    В меню
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function startGame() {
+            gameState = 'playing';
+            score = { correct: 0, total: 0 };
+            usedIndices = [];
+            generateQuestion();
+        }
+
+        function generateQuestion() {
+            // Используем currentVocabulary.length
+            if (usedIndices.length >= currentVocabulary.length) {
+                finishGame();
+                return;
+            }
+
+            let randomIndex;
+            do {
+                // Используем currentVocabulary.length
+                randomIndex = Math.floor(Math.random() * currentVocabulary.length);
+            } while (usedIndices.includes(randomIndex));
+
+            const question = currentVocabulary[randomIndex]; // Используем currentVocabulary
+            correctAnswer = question.a;
+            currentQuestion = question.q;
+
+            // --- ИЗМЕНЕНИЕ: Уменьшение вариантов ответа до 3 (2 неправильных + 1 правильный) ---
+            const wrongAnswers = [];
+            while (wrongAnswers.length < 2) { 
+                const randomWrongIndex = Math.floor(Math.random() * currentVocabulary.length);
+                const wrongAns = currentVocabulary[randomWrongIndex].a; // Используем currentVocabulary
+                if (wrongAns !== correctAnswer && !wrongAnswers.includes(wrongAns)) {
+                    wrongAnswers.push(wrongAns);
+                }
+            }
+            // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+            options = [...wrongAnswers, correctAnswer].sort(() => Math.random() - 0.5);
+            selectedAnswer = null;
+            usedIndices.push(randomIndex);
+            render();
+        }
+
+        function selectAnswer(answer) {
+            if (selectedAnswer !== null) return;
+            selectedAnswer = answer;
+            const isCorrect = answer === correctAnswer;
+            score.correct += isCorrect ? 1 : 0;
+            score.total += 1;
+            render();
+        }
+
+        function nextQuestion() {
+            generateQuestion();
+        }
+
+        function finishGame() {
+            gameState = 'finished';
+            render();
+        }
+
+        // Изменена функция для возможности немедленного перезапуска
+        function exitGame(restart = false) {
+            score = { correct: 0, total: 0 };
+            usedIndices = [];
+            if (restart) {
+                // Если пользователь нажал "Играть снова" на финальном экране
+                startGame();
+            } else {
+                // Если пользователь нажал "Exit" или "В меню"
+                gameState = 'menu';
+                render();
+            }
+        }
+
+        // Запускаем рендеринг при загрузке страницы
+        // Дополнительно: загружаем словарь по умолчанию, чтобы сразу знать его размер в меню
+        loadDictionary(selectedDictionaryKey).then(() => render());
+
+    </script>
+</body>
+</html>
