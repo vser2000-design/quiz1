@@ -1,4 +1,4 @@
-const CACHE_NAME = 'my quiz-v1';
+const CACHE_NAME = 'my-quiz-v1';
 const urlsToCache = [
   '/quiz1/',
   '/quiz1/index.html',
@@ -38,3 +38,4 @@ self.addEventListener('activate', (event) => {
   );
 
 });
+
