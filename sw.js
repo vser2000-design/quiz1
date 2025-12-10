@@ -7,7 +7,6 @@ const urlsToCache = [
   '/quiz1/icon-512.png'
   '/quiz1/food_br.json'
   '/quiz1/slang_br.json'
-  '/quiz1/phrasal-verbs_x.json'
   '/quiz1/slang_nl.json'
 ];
 
@@ -39,3 +38,4 @@ self.addEventListener('activate', (event) => {
   );
 
 });
+
